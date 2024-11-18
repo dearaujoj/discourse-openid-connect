@@ -19,6 +19,64 @@ class OpenIDConnectAuthenticator < Auth::ManagedAuthenticator
     SiteSetting.openid_connect_enabled
   end
 
+  def validate_groups(auth)
+    return true if SiteSetting.openid_connect_required_groups.blank?
+
+    required_groups = SiteSetting.openid_connect_required_groups.split("|")
+    groups_claim = SiteSetting.openid_connect_groups_claim
+    
+    log_groups_debug("Starting group validation for user")
+    log_groups_debug("Required groups: #{required_groups.inspect}")
+    
+    user_groups = auth["extra"]["raw_info"][groups_claim]
+    
+    if user_groups.nil?
+      log_groups_debug("No groups found in claim '#{groups_claim}'", error: true)
+      return false
+    end
+    
+    # Handle both array and string formats
+    user_groups = user_groups.split(",") if user_groups.is_a?(String)
+    user_groups = Array(user_groups)
+    
+    log_groups_debug("User groups (#{groups_claim}): #{user_groups.inspect}")
+    
+    matching_groups = required_groups & user_groups
+    has_required_group = matching_groups.any?
+    
+    if has_required_group
+      log_groups_debug("Access granted - user has required group(s): #{matching_groups.inspect}")
+    else
+      log_groups_debug("Access denied - user has none of the required groups", error: true)
+    end
+    
+    has_required_group
+  end
+
+  def log_groups_debug(message, error: false)
+    return unless SiteSetting.openid_connect_groups_debug_logging || error
+    
+    prefix = error ? "OIDC Groups [ERROR]" : "OIDC Groups [DEBUG]"
+    Rails.logger.send(error ? :error : :info, "#{prefix}: #{message}")
+  end
+
+  def after_authenticate(auth)
+    result = super
+
+    if result.failed?
+      oidc_log("Authentication failed: #{result.failed_reason}", error: true)
+      return result
+    end
+
+    unless validate_groups(auth)
+      result.failed = true
+      result.failed_reason = I18n.t("login.not_in_required_group")
+      log_groups_debug("Group validation failed for user", error: true)
+    end
+
+    result
+  end
+
   def primary_email_verified?(auth)
     supplied_verified_boolean = auth["extra"]["raw_info"]["email_verified"]
     # If the payload includes the email_verified boolean, use it. Otherwise assume true

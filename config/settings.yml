@@ -37,3 +37,13 @@ discourse_openid_connect:
     default: true
   openid_connect_use_pkce:
     default: false
+  openid_connect_required_groups:
+    default: ""
+    type: list
+    list_type: compact
+  openid_connect_groups_claim:
+    default: "groups"
+    description: "The name of the claim in the ID token that contains the user's groups"
+  openid_connect_groups_debug_logging:
+    default: false
+    description: "Enable detailed logging for group validation to help administrators debug group-based access issues"

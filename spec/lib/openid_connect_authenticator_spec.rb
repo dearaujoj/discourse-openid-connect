@@ -129,4 +129,127 @@ describe OpenIDConnectAuthenticator do
       expect(stub).to have_been_requested.once
     end
   end
+
+  describe "group validation" do
+    before do
+      hash[:extra][:raw_info][:email_verified] = true
+    end
+
+    context "when no groups are required" do
+      before do
+        SiteSetting.openid_connect_required_groups = ""
+      end
+
+      it "allows authentication" do
+        result = authenticator.after_authenticate(hash)
+        expect(result.failed).to eq(false)
+      end
+    end
+
+    context "when groups are required" do
+      before do
+        SiteSetting.openid_connect_required_groups = "admin|staff"
+      end
+
+      context "with array format groups" do
+        it "allows authentication when user has required group" do
+          hash[:extra][:raw_info][:groups] = ["staff", "users"]
+          result = authenticator.after_authenticate(hash)
+          expect(result.failed).to eq(false)
+        end
+
+        it "denies authentication when user doesn't have required group" do
+          hash[:extra][:raw_info][:groups] = ["users", "customers"]
+          result = authenticator.after_authenticate(hash)
+          expect(result.failed).to eq(true)
+          expect(result.failed_reason).to eq(I18n.t("login.not_in_required_group"))
+        end
+      end
+
+      context "with string format groups" do
+        it "allows authentication when user has required group" do
+          hash[:extra][:raw_info][:groups] = "admin,users"
+          result = authenticator.after_authenticate(hash)
+          expect(result.failed).to eq(false)
+        end
+
+        it "denies authentication when user doesn't have required group" do
+          hash[:extra][:raw_info][:groups] = "users,customers"
+          result = authenticator.after_authenticate(hash)
+          expect(result.failed).to eq(true)
+          expect(result.failed_reason).to eq(I18n.t("login.not_in_required_group"))
+        end
+      end
+
+      context "with custom groups claim" do
+        before do
+          SiteSetting.openid_connect_groups_claim = "roles"
+        end
+
+        it "uses the custom claim name" do
+          hash[:extra][:raw_info][:roles] = ["admin"]
+          result = authenticator.after_authenticate(hash)
+          expect(result.failed).to eq(false)
+        end
+      end
+
+      context "when groups claim is missing" do
+        it "denies authentication" do
+          result = authenticator.after_authenticate(hash)
+          expect(result.failed).to eq(true)
+          expect(result.failed_reason).to eq(I18n.t("login.not_in_required_group"))
+        end
+      end
+
+      context "with debug logging" do
+        before do
+          SiteSetting.openid_connect_required_groups = "admin|staff"
+          SiteSetting.openid_connect_groups_debug_logging = true
+        end
+
+        it "logs debug information when enabled" do
+          hash[:extra][:raw_info][:groups] = ["staff", "users"]
+          
+          messages = []
+          Rails.logger.stubs(:info).with { |message| messages << message }
+          
+          authenticator.after_authenticate(hash)
+          
+          expect(messages).to include(match(/OIDC Groups \[DEBUG\]: Starting group validation/))
+          expect(messages).to include(match(/OIDC Groups \[DEBUG\]: Required groups/))
+          expect(messages).to include(match(/OIDC Groups \[DEBUG\]: User groups/))
+          expect(messages).to include(match(/OIDC Groups \[DEBUG\]: Access granted/))
+        end
+
+        it "logs error information for failed validation" do
+          hash[:extra][:raw_info][:groups] = ["users"]
+          
+          messages = []
+          Rails.logger.stubs(:error).with { |message| messages << message }
+          
+          authenticator.after_authenticate(hash)
+          
+          expect(messages).to include(match(/OIDC Groups \[ERROR\]: Access denied/))
+          expect(messages).to include(match(/OIDC Groups \[ERROR\]: Group validation failed/))
+        end
+
+        it "always logs errors even when debug logging is disabled" do
+          SiteSetting.openid_connect_groups_debug_logging = false
+          hash[:extra][:raw_info][:groups] = ["users"]
+          
+          messages = []
+          Rails.logger.stubs(:error).with { |message| messages << message }
+          Rails.logger.stubs(:info).with { |message| messages << message }
+          
+          authenticator.after_authenticate(hash)
+          
+          error_messages = messages.select { |m| m.include?("[ERROR]") }
+          debug_messages = messages.select { |m| m.include?("[DEBUG]") }
+          
+          expect(error_messages).not_to be_empty
+          expect(debug_messages).to be_empty
+        end
+      end
+    end
+  end
 end

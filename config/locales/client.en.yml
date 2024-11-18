@@ -10,3 +10,4 @@ en:
         name: "OpenID Connect"
         title: "with OpenID Connect"
         message: "Authenticating with OpenID Connect"
+      not_in_required_group: "You are not a member of the required group(s) to access this site."
