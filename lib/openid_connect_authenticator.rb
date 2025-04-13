@@ -116,7 +116,9 @@ class OpenIDConnectAuthenticator < Auth::ManagedAuthenticator
               c.use Faraday::Response::RaiseError
               c.adapter FinalDestination::FaradayAdapter
             end
-          JSON.parse(connection.get(document_url).body)
+          response = connection.get(document_url)
+          oidc_log("Raw discovery document response:\n#{response.body}")
+          JSON.parse(response.body)
         rescue Faraday::Error, JSON::ParserError => e
           oidc_log("Fetching discovery document raised error #{e.class} #{e.message}", error: true)
           nil
